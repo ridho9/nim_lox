@@ -5,6 +5,7 @@ type
   OpCode* = enum
     OP_RETURN,
     OP_CONST,
+    OP_CONST_LONG,
   
   Chunk* = ref object
     code*: seq[uint8]
@@ -31,9 +32,20 @@ proc add_const* (this: Chunk, value: Value): int =
   result = this.constants.len - 1
 
 proc write_const* (this: Chunk, value: Value, line: int) =
-  this.write(OP_CONST, line)
-  let c = this.add_const value
-  this.write(c, line)
+  var c = this.add_const value
+
+  if c <= high(uint8).int:
+    this.write(OP_CONST, line)
+    this.write(c, line)
+  else:
+    # TODO: Generate OP_CONST_LONG
+    this.write(OP_CONST_LONG, line)
+    this.write(c.mod 0x100, line)
+    c = c.div 0x100
+    this.write(c.mod 0x100, line)
+    c = c.div 0x100
+    this.write(c.mod 0x100, line)
+    echo "Too many const in chunk"
 
 proc simple_inst (this: Chunk, name: string, offset: int): int =
   stdout.write name & "\n"
@@ -48,6 +60,19 @@ proc const_inst (this: Chunk, name: string, offset: int): int =
   stdout.write "'\n"
 
   result = offset + 2
+
+proc const_long_inst (this: Chunk, name: string, offset: int): int =
+  let c =
+    this.code[offset + 1].int +
+    this.code[offset + 2].int * 0x100 +
+    this.code[offset + 3].int * 0x10000
+  let v = this.constants[int(c)]
+
+  stdout.write &"{name:<16s} {c:4} '"
+  v.print()
+  stdout.write "'\n"
+
+  result = offset + 4
 
 proc disassemble_inst* (this: Chunk, offset: int): int =
   stdout.write &"{offset:04}  "
@@ -65,6 +90,8 @@ proc disassemble_inst* (this: Chunk, offset: int): int =
       result = this.simple_inst("OP_RETURN", offset)
     of OP_CONST:
       result = this.const_inst("OP_CONST", offset)
+    of OP_CONST_LONG:
+      result = this.const_long_inst("OP_CONST_LONG", offset)
 
   except:
     stdout.write &"Unknown opcode {this.code[offset]}\n"
